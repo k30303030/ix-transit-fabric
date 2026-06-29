@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Fix broken ix wrapper / stale install.sh cache. Run:
-# curl -fsSL "https://raw.githubusercontent.com/ike-sh/ix-transit-fabric/main/scripts/fix-ix.sh?ts=$(date +%s)" | sudo bash
+# curl -fsSL "https://raw.githubusercontent.com/k30303030/wg-mimic-fabric/main/scripts/fix-ix.sh?ts=$(date +%s)" | sudo bash
 set -euo pipefail
 
-REPO="${IXTF_REPO:-ike-sh/ix-transit-fabric}"
+REPO="${IXTF_REPO:-k30303030/wg-mimic-fabric}"
 REF="${IXTF_TAG:-main}"
 LIBEXEC="/usr/local/libexec/ix-transit-fabric"
 INSTALL_SH="${LIBEXEC}/install.sh"

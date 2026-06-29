@@ -1,8 +1,8 @@
 # ix-transit-fabric
 
-**当前版本**：[`v1.3.18`](https://github.com/ike-sh/ix-transit-fabric/releases/tag/v1.3.18)  
+**当前版本**：[`v1.3.18`](https://github.com/k30303030/wg-mimic-fabric/releases/tag/v1.3.18)
 **作者**：ike  
-**仓库**：[https://github.com/ike-sh/ix-transit-fabric](https://github.com/ike-sh/ix-transit-fabric)
+**仓库**：[https://github.com/k30303030/wg-mimic-fabric](https://github.com/k30303030/wg-mimic-fabric)
 
 用于管理 **NAT-IX 中转线路**：公网入口机接收客户端连接，经 EasyTier 虚拟网连到 NAT IX 机器，再由 nftables 转发到落地业务端口。
 
@@ -35,7 +35,7 @@
 一行安装通过 **GitHub API** 拉取最新 `install.sh`（绕过 raw CDN 缓存；可用 `IXTF_TAG=vX.Y.Z` 固定版本）：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/ike-sh/ix-transit-fabric/main/scripts/bootstrap.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/k30303030/wg-mimic-fabric/main/scripts/bootstrap.sh | sudo bash
 ```
 
 非 root 时仅下载 `install.sh` 到当前目录，按提示再 `sudo` 执行。
@@ -43,8 +43,8 @@ curl -fsSL https://raw.githubusercontent.com/ike-sh/ix-transit-fabric/main/scrip
 ### 手动安装（分步）
 
 ```bash
-V=$(curl -fsSL https://raw.githubusercontent.com/ike-sh/ix-transit-fabric/main/VERSION | tr -d '[:space:]')
-curl -fsSL -o install.sh "https://raw.githubusercontent.com/ike-sh/ix-transit-fabric/v${V}/install.sh?ts=$(date +%s)"
+V=$(curl -fsSL https://raw.githubusercontent.com/k30303030/wg-mimic-fabric/main/VERSION | tr -d '[:space:]')
+curl -fsSL -o install.sh "https://raw.githubusercontent.com/k30303030/wg-mimic-fabric/v${V}/install.sh?ts=$(date +%s)"
 chmod +x install.sh
 sudo bash install.sh install-easytier
 sudo bash install.sh install-ix-cli
@@ -68,7 +68,7 @@ sudo bash install.sh install-ix-cli
 
 ```bash
 IXTF_TAG=v1.2.3 curl -fsSL -o install.sh \
-  "https://raw.githubusercontent.com/ike-sh/ix-transit-fabric/${IXTF_TAG}/install.sh?ts=$(date +%s)"
+  "https://raw.githubusercontent.com/k30303030/wg-mimic-fabric/${IXTF_TAG}/install.sh?ts=$(date +%s)"
 bash install.sh install-ix-cli
 ```
 

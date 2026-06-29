@@ -3,7 +3,7 @@
 # Optional: IXTF_TAG=v1.3.4 to pin a release tag instead of main
 set -euo pipefail
 
-REPO="${IXTF_REPO:-ike-sh/ix-transit-fabric}"
+REPO="${IXTF_REPO:-k30303030/wg-mimic-fabric}"
 TAG="${IXTF_TAG:-}"
 TS="$(date +%s)"
 

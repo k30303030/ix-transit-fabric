@@ -3,7 +3,7 @@ set -Eeuo pipefail
 
 SCRIPT_VERSION="1.3.18"
 APP_NAME="ix-transit-fabric"
-IXTF_PROJECT_REPO="ike-sh/ix-transit-fabric"
+IXTF_PROJECT_REPO="k30303030/wg-mimic-fabric"
 
 CONFIG_DIR="/etc/ix-transit-fabric"
 ENV_FILE="${CONFIG_DIR}/ix-transit.env"
@@ -264,7 +264,7 @@ usage() {
     cat <<'USAGE'
 ix-transit-fabric - NAT-IX + EasyTier + nftables 中转线路管理脚本
 作者：ike
-项目地址：https://github.com/ike-sh/ix-transit-fabric
+项目地址：https://github.com/k30303030/wg-mimic-fabric
 
 基础：
   bash install.sh --help
@@ -3682,7 +3682,7 @@ set -Eeuo pipefail
 IX_INSTALL_SH="/usr/local/libexec/ix-transit-fabric/install.sh"
 if [[ ! -x "$IX_INSTALL_SH" ]]; then
     printf '%s\n' "[ERROR] 未找到 ix 安装脚本：${IX_INSTALL_SH}" >&2
-    printf '%s\n' "请运行：curl -fsSL https://raw.githubusercontent.com/ike-sh/ix-transit-fabric/main/scripts/bootstrap.sh | sudo bash" >&2
+    printf '%s\n' "请运行：curl -fsSL https://raw.githubusercontent.com/k30303030/wg-mimic-fabric/main/scripts/bootstrap.sh | sudo bash" >&2
     exit 1
 fi
 if (($#)); then
@@ -3813,7 +3813,7 @@ upgrade_script() {
         fi
         chmod 0755 "$tmp"
         downloaded_ver="$(grep -m1 '^SCRIPT_VERSION=' "$tmp" | sed -E 's/^SCRIPT_VERSION="([^"]+)".*/\1/')"
-        [[ "$downloaded_ver" == "$target_ver" ]] || die_user "下载仍为 ${downloaded_ver}，与目标 ${target_ver} 不符。请运行：curl -fsSL \"https://raw.githubusercontent.com/ike-sh/ix-transit-fabric/main/scripts/fix-ix.sh?ts=\$(date +%s)\" | sudo bash"
+        [[ "$downloaded_ver" == "$target_ver" ]] || die_user "下载仍为 ${downloaded_ver}，与目标 ${target_ver} 不符。请运行：curl -fsSL \"https://raw.githubusercontent.com/k30303030/wg-mimic-fabric/main/scripts/fix-ix.sh?ts=\$(date +%s)\" | sudo bash"
     fi
     if [[ "$before" == "$target_ver" && "${installed_ver:-$before}" == "$target_ver" ]]; then
         rm -f -- "$tmp"
@@ -5162,8 +5162,100 @@ validate_all_enabled_profiles() {
     done
 }
 
+render_nft_profile_prerouting_rules() {
+    local profile_id="$1" rule_id dport target daddr proto
+    local saved_rule_id="${RULE_ID:-}" saved_note="${RULE_NOTE:-}" saved_enabled="${RULE_ENABLED:-}" saved_client="${CLIENT_PORT:-}" saved_nat_public="${NAT_PUBLIC_PORT:-}"
+    local saved_transit="${TRANSIT_PORT:-}" saved_landing_host="${LANDING_HOST:-}" saved_landing_port="${LANDING_PORT:-}" saved_proto="${FORWARD_PROTO:-both}" saved_created="${CREATED_AT:-}" saved_updated="${UPDATED_AT:-}"
+    local rendered=0 saw_rule=0 rc=0
+
+    if profile_supports_forward_rules; then
+        for rule_id in $(profile_rule_ids "$profile_id"); do
+            saw_rule=1
+            load_rule "$profile_id" "$rule_id" || continue
+            [[ "${RULE_ENABLED:-true}" == "true" ]] || continue
+            dport="$(profile_rule_nft_dport)" || continue
+            target="$(profile_rule_nft_target)" || { rc=1; break; }
+            daddr="$(profile_rule_nft_daddr_match || true)"
+            proto="${FORWARD_PROTO:-both}"
+            printf '        # profile: %s rule: %s\n' "$profile_id" "$rule_id"
+            if [[ "$proto" == "tcp" || "$proto" == "both" ]]; then
+                printf '        %stcp dport %s dnat to %s\n' "$daddr" "$dport" "$target"
+            fi
+            if [[ "$proto" == "udp" || "$proto" == "both" ]]; then
+                printf '        %sudp dport %s dnat to %s\n' "$daddr" "$dport" "$target"
+            fi
+            printf '\n'
+            rendered=1
+        done
+        RULE_ID="$saved_rule_id"; RULE_NOTE="$saved_note"; RULE_ENABLED="$saved_enabled"; CLIENT_PORT="$saved_client"; NAT_PUBLIC_PORT="$saved_nat_public"
+        TRANSIT_PORT="$saved_transit"; LANDING_HOST="$saved_landing_host"; LANDING_PORT="$saved_landing_port"; FORWARD_PROTO="$saved_proto"; CREATED_AT="$saved_created"; UPDATED_AT="$saved_updated"
+        [[ "$rc" -eq 0 ]] || return 1
+        [[ "$rendered" -eq 1 ]] && return 0
+        [[ "$saw_rule" -eq 1 ]] && return 0
+    fi
+
+    dport="$(profile_nft_dport)" || return 0
+    target="$(profile_nft_target)" || return 1
+    daddr="$(profile_nft_daddr_match || true)"
+    proto="${FORWARD_PROTO:-both}"
+    printf '        # profile: %s\n' "$profile_id"
+    if [[ "$proto" == "tcp" || "$proto" == "both" ]]; then
+        printf '        %stcp dport %s dnat to %s\n' "$daddr" "$dport" "$target"
+    fi
+    if [[ "$proto" == "udp" || "$proto" == "both" ]]; then
+        printf '        %sudp dport %s dnat to %s\n' "$daddr" "$dport" "$target"
+    fi
+    printf '\n'
+}
+
+render_nft_profile_postrouting_rules() {
+    local profile_id="$1" rule_id post ip port proto
+    local saved_rule_id="${RULE_ID:-}" saved_note="${RULE_NOTE:-}" saved_enabled="${RULE_ENABLED:-}" saved_client="${CLIENT_PORT:-}" saved_nat_public="${NAT_PUBLIC_PORT:-}"
+    local saved_transit="${TRANSIT_PORT:-}" saved_landing_host="${LANDING_HOST:-}" saved_landing_port="${LANDING_PORT:-}" saved_proto="${FORWARD_PROTO:-both}" saved_created="${CREATED_AT:-}" saved_updated="${UPDATED_AT:-}"
+    local rendered=0 saw_rule=0 rc=0
+
+    if profile_supports_forward_rules; then
+        for rule_id in $(profile_rule_ids "$profile_id"); do
+            saw_rule=1
+            load_rule "$profile_id" "$rule_id" || continue
+            [[ "${RULE_ENABLED:-true}" == "true" ]] || continue
+            post="$(profile_rule_nft_postrouting_ip_port)" || { rc=1; break; }
+            ip="${post%:*}"
+            port="${post##*:}"
+            proto="${FORWARD_PROTO:-both}"
+            printf '        # profile: %s rule: %s\n' "$profile_id" "$rule_id"
+            if [[ "$proto" == "tcp" || "$proto" == "both" ]]; then
+                printf '        ip daddr %s tcp dport %s masquerade\n' "$ip" "$port"
+            fi
+            if [[ "$proto" == "udp" || "$proto" == "both" ]]; then
+                printf '        ip daddr %s udp dport %s masquerade\n' "$ip" "$port"
+            fi
+            printf '\n'
+            rendered=1
+        done
+        RULE_ID="$saved_rule_id"; RULE_NOTE="$saved_note"; RULE_ENABLED="$saved_enabled"; CLIENT_PORT="$saved_client"; NAT_PUBLIC_PORT="$saved_nat_public"
+        TRANSIT_PORT="$saved_transit"; LANDING_HOST="$saved_landing_host"; LANDING_PORT="$saved_landing_port"; FORWARD_PROTO="$saved_proto"; CREATED_AT="$saved_created"; UPDATED_AT="$saved_updated"
+        [[ "$rc" -eq 0 ]] || return 1
+        [[ "$rendered" -eq 1 ]] && return 0
+        [[ "$saw_rule" -eq 1 ]] && return 0
+    fi
+
+    post="$(profile_nft_postrouting_ip_port)" || return 0
+    ip="${post%:*}"
+    port="${post##*:}"
+    proto="${FORWARD_PROTO:-both}"
+    printf '        # profile: %s\n' "$profile_id"
+    if [[ "$proto" == "tcp" || "$proto" == "both" ]]; then
+        printf '        ip daddr %s tcp dport %s masquerade\n' "$ip" "$port"
+    fi
+    if [[ "$proto" == "udp" || "$proto" == "both" ]]; then
+        printf '        ip daddr %s udp dport %s masquerade\n' "$ip" "$port"
+    fi
+    printf '\n'
+}
+
 render_nft_all_file() {
-    local output="$1" table_name="$2" id dport target daddr post ip port
+    local output="$1" table_name="$2" id
     {
         printf 'table ip %s {\n' "$table_name"
         printf '    chain prerouting {\n'
@@ -5171,17 +5263,7 @@ render_nft_all_file() {
         for id in $(profile_ids); do
             load_profile "$id" || continue
             profile_needs_nft_forward || continue
-            dport="$(profile_nft_dport)" || continue
-            target="$(profile_nft_target)" || return 1
-            daddr="$(profile_nft_daddr_match || true)"
-            printf '        # profile: %s\n' "$id"
-            if [[ "${FORWARD_PROTO:-both}" == "tcp" || "${FORWARD_PROTO:-both}" == "both" ]]; then
-                printf '        %stcp dport %s dnat to %s\n' "$daddr" "$dport" "$target"
-            fi
-            if [[ "${FORWARD_PROTO:-both}" == "udp" || "${FORWARD_PROTO:-both}" == "both" ]]; then
-                printf '        %sudp dport %s dnat to %s\n' "$daddr" "$dport" "$target"
-            fi
-            printf '\n'
+            render_nft_profile_prerouting_rules "$id" || return 1
         done
         printf '    }\n\n'
         printf '    chain postrouting {\n'
@@ -5189,17 +5271,7 @@ render_nft_all_file() {
         for id in $(profile_ids); do
             load_profile "$id" || continue
             profile_needs_nft_forward || continue
-            post="$(profile_nft_postrouting_ip_port)" || return 1
-            ip="${post%:*}"
-            port="${post##*:}"
-            printf '        # profile: %s\n' "$id"
-            if [[ "${FORWARD_PROTO:-both}" == "tcp" || "${FORWARD_PROTO:-both}" == "both" ]]; then
-                printf '        ip daddr %s tcp dport %s masquerade\n' "$ip" "$port"
-            fi
-            if [[ "${FORWARD_PROTO:-both}" == "udp" || "${FORWARD_PROTO:-both}" == "both" ]]; then
-                printf '        ip daddr %s udp dport %s masquerade\n' "$ip" "$port"
-            fi
-            printf '\n'
+            render_nft_profile_postrouting_rules "$id" || return 1
         done
         printf '    }\n'
         printf '}\n'
@@ -8191,10 +8263,21 @@ wait_for_easytier_ready() {
     return 1
 }
 
+apply_nft_before_profile_service_start() {
+    local profile_id="$1"
+    load_profile_or_die "$profile_id"
+    profile_needs_nft_forward || return 0
+    if ! apply_nft_all; then
+        log_warn "nftables 转发规则应用失败，EasyTier 服务仍会尝试启动；请运行 bash install.sh verify-nft-profiles"
+    fi
+    load_profile_or_die "$profile_id"
+}
+
 start_profile() {
     local profile_id="${1:-}" service
     profile_id="$(resolve_profile_id "$profile_id")"
     load_profile_or_die "$profile_id"
+    apply_nft_before_profile_service_start "$profile_id"
     if [[ "${_IXTF_PROFILE_SERVICE_FILES_READY:-false}" != "true" ]]; then
         render_profile_service_files
     fi
@@ -8220,6 +8303,7 @@ restart_profile() {
     local profile_id="${1:-}" service
     profile_id="$(resolve_profile_id "$profile_id")"
     load_profile_or_die "$profile_id"
+    apply_nft_before_profile_service_start "$profile_id"
     if [[ "${_IXTF_PROFILE_SERVICE_FILES_READY:-false}" != "true" ]]; then
         render_profile_service_files
     fi
@@ -14696,12 +14780,12 @@ EOF
     case "$mode" in
         1)
             uninstall
-            print_info "重新安装：curl -fsSL https://raw.githubusercontent.com/ike-sh/ix-transit-fabric/main/scripts/bootstrap.sh | sudo bash"
+            print_info "重新安装：curl -fsSL https://raw.githubusercontent.com/k30303030/wg-mimic-fabric/main/scripts/bootstrap.sh | sudo bash"
             return 11
             ;;
         2)
             purge
-            print_info "重新安装：curl -fsSL https://raw.githubusercontent.com/ike-sh/ix-transit-fabric/main/scripts/bootstrap.sh | sudo bash"
+            print_info "重新安装：curl -fsSL https://raw.githubusercontent.com/k30303030/wg-mimic-fabric/main/scripts/bootstrap.sh | sudo bash"
             return 11
             ;;
         0|"") return 0 ;;
