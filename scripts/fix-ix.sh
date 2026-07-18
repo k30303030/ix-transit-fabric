@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
 # Fix broken ix wrapper / stale install.sh cache. Run:
-# curl -fsSL "https://raw.githubusercontent.com/k30303030/wg-mimic-fabric/main/scripts/fix-ix.sh?ts=$(date +%s)" | sudo bash
+# curl -fsSL "https://raw.githubusercontent.com/k30303030/ix-transit-fabric/dev/scripts/fix-ix.sh?ts=$(date +%s)" | sudo bash
 set -euo pipefail
 
-REPO="${IXTF_REPO:-k30303030/wg-mimic-fabric}"
-REF="${IXTF_TAG:-main}"
+REPO="${IXTF_REPO:-k30303030/ix-transit-fabric}"
+REF="${IXTF_TAG:-${IXTF_REF:-dev}}"
 LIBEXEC="/usr/local/libexec/ix-transit-fabric"
 INSTALL_SH="${LIBEXEC}/install.sh"
 TS="$(date +%s)"
 
 fetch_repo_file() {
-    local relpath="$1" dest="$2" ref="${3:-main}"
+    local relpath="$1" dest="$2" ref="${3:-$REF}"
     if curl -fsSL -H "Accept: application/vnd.github.raw+json" \
         -o "$dest" "https://api.github.com/repos/${REPO}/contents/${relpath}?ref=${ref}" 2>/dev/null; then
         return 0
@@ -26,7 +26,7 @@ fi
 if [[ -n "${IXTF_TAG:-}" ]]; then
     [[ "$REF" == v* ]] || REF="v${REF}"
 else
-    REF="main"
+    REF="${IXTF_REF:-dev}"
 fi
 
 echo "[INFO] 同步 install.sh（ref=${REF}，GitHub API 优先）..."

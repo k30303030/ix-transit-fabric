@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
 # One-line installer: curl -fsSL .../bootstrap.sh | sudo bash
-# Optional: IXTF_TAG=v1.3.4 to pin a release tag instead of main
+# Default channel: dev. Optional: IXTF_TAG=v1.3.4 to pin a release tag.
 set -euo pipefail
 
-REPO="${IXTF_REPO:-k30303030/wg-mimic-fabric}"
+REPO="${IXTF_REPO:-k30303030/ix-transit-fabric}"
+DEFAULT_REF="${IXTF_REF:-dev}"
 TAG="${IXTF_TAG:-}"
 TS="$(date +%s)"
 
 fetch_repo_file() {
-    local relpath="$1" dest="$2" ref="${3:-main}"
+    local relpath="$1" dest="$2" ref="${3:-$DEFAULT_REF}"
     if curl -fsSL -H "Accept: application/vnd.github.raw+json" \
         -o "$dest" "https://api.github.com/repos/${REPO}/contents/${relpath}?ref=${ref}" 2>/dev/null; then
         return 0
@@ -24,8 +25,8 @@ if [[ -n "$TAG" ]]; then
     echo "[INFO] 下载 ${REPO} ${TAG} ..."
     fetch_repo_file "install.sh" "$tmp" "$TAG"
 else
-    echo "[INFO] 下载 ${REPO} main（最新 install.sh，GitHub API）..."
-    fetch_repo_file "install.sh" "$tmp" "main"
+    echo "[INFO] 下载 ${REPO} ${DEFAULT_REF}（最新开发版 install.sh，GitHub API）..."
+    fetch_repo_file "install.sh" "$tmp" "$DEFAULT_REF"
 fi
 chmod +x "$tmp"
 remote_ver="$(grep -m1 '^SCRIPT_VERSION=' "$tmp" | sed -E 's/^SCRIPT_VERSION="([^"]+)".*/\1/')"
@@ -36,7 +37,7 @@ if [[ "$(id -u)" -eq 0 ]]; then
     bash "$tmp" install-ix-cli
     fix_sh="$(mktemp /tmp/ix-transit-fix.XXXXXX)"
     echo "[INFO] 强制同步 install.sh（绕过 raw CDN 缓存）..."
-    fetch_repo_file "scripts/fix-ix.sh" "$fix_sh" "main"
+    fetch_repo_file "scripts/fix-ix.sh" "$fix_sh" "$DEFAULT_REF"
     chmod +x "$fix_sh"
     bash "$fix_sh"
     rm -f -- "$fix_sh"

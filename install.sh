@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-SCRIPT_VERSION="1.3.18"
+SCRIPT_VERSION="1.3.20"
 APP_NAME="ix-transit-fabric"
-IXTF_PROJECT_REPO="k30303030/wg-mimic-fabric"
+IXTF_PROJECT_REPO="${IXTF_REPO:-k30303030/ix-transit-fabric}"
+IXTF_PROJECT_REF="${IXTF_REF:-dev}"
 
 CONFIG_DIR="/etc/ix-transit-fabric"
 ENV_FILE="${CONFIG_DIR}/ix-transit.env"
@@ -264,7 +265,7 @@ usage() {
     cat <<'USAGE'
 ix-transit-fabric - NAT-IX + EasyTier + nftables 中转线路管理脚本
 作者：ike
-项目地址：https://github.com/k30303030/wg-mimic-fabric
+项目地址：https://github.com/k30303030/ix-transit-fabric
 
 基础：
   bash install.sh --help
@@ -1706,10 +1707,10 @@ print_profile_selection_hint() {
     local requested="${1:-}" verb="${2:-health}" count id first_id=""
     count="$(profile_count)"
     if [[ -n "$requested" ]]; then
-        printf '[ERROR] 未找到 Profile：%s\n' "$requested" >&2
+        printf '[ERROR] 未找到线路：%s\n' "$requested" >&2
     fi
     if [[ "$count" -gt 0 ]]; then
-        printf '当前机器已有 Profile：\n' >&2
+        printf '当前机器已有线路：\n' >&2
         for id in $(profile_ids); do
             [[ -n "$first_id" ]] || first_id="$id"
             profile_hint_line "$id"
@@ -1718,7 +1719,7 @@ print_profile_selection_hint() {
         printf '  bash install.sh %s %s\n' "$verb" "$first_id" >&2
         printf '也可以先运行：bash install.sh list-profiles\n' >&2
     else
-        printf '当前机器没有任何 Profile。请先创建落地或入口 Profile。\n' >&2
+        printf '当前机器没有任何线路。请先创建 NAT IX 中转线路或导入接入码。\n' >&2
         printf '可先运行：bash install.sh list-profiles\n' >&2
     fi
 }
@@ -1727,7 +1728,7 @@ resolve_profile_id_for_cmd() {
     local requested="${1:-}" verb="${2:-health}" count only path
     if [[ -n "$requested" ]]; then
         if ! validate_profile_id "$requested"; then
-            printf '[ERROR] PROFILE_ID 格式不正确：%s\n' "$requested" >&2
+            printf '[ERROR] 线路 ID 格式不正确：%s\n' "$requested" >&2
             return 2
         fi
         path="$(profile_env_path "$requested")" || return 2
@@ -1755,8 +1756,8 @@ resolve_profile_id_for_cmd() {
 resolve_profile_id() {
     local requested="${1:-}" count only
     if [[ -n "$requested" ]]; then
-        validate_profile_id "$requested" || die_user "PROFILE_ID 格式不正确：${requested}"
-        [[ -f "$(profile_env_path "$requested")" ]] || die_user "未找到 Profile：${requested}"
+        validate_profile_id "$requested" || die_user "线路 ID 格式不正确：${requested}"
+        [[ -f "$(profile_env_path "$requested")" ]] || die_user "未找到线路：${requested}"
         printf '%s\n' "$requested"
         return 0
     fi
@@ -1770,9 +1771,9 @@ resolve_profile_id() {
         printf 'default\n'
         return 0
     fi
-    printf '已有 Profile：\n' >&2
+    printf '已有线路：\n' >&2
     profile_ids | sed 's/^/  - /' >&2
-    die_user "请指定 PROFILE_ID。"
+    die_user "请指定线路 ID。"
 }
 
 generate_secret() {
@@ -3682,7 +3683,7 @@ set -Eeuo pipefail
 IX_INSTALL_SH="/usr/local/libexec/ix-transit-fabric/install.sh"
 if [[ ! -x "$IX_INSTALL_SH" ]]; then
     printf '%s\n' "[ERROR] 未找到 ix 安装脚本：${IX_INSTALL_SH}" >&2
-    printf '%s\n' "请运行：curl -fsSL https://raw.githubusercontent.com/k30303030/wg-mimic-fabric/main/scripts/bootstrap.sh | sudo bash" >&2
+    printf '%s\n' "请运行：curl -fsSL https://raw.githubusercontent.com/k30303030/ix-transit-fabric/dev/scripts/bootstrap.sh | sudo bash" >&2
     exit 1
 fi
 if (($#)); then
@@ -3756,7 +3757,7 @@ repair_ix_cli() {
 }
 
 fetch_repo_file_contents() {
-    local relpath="$1" dest="$2" ref="${3:-main}"
+    local relpath="$1" dest="$2" ref="${3:-$IXTF_PROJECT_REF}"
     if curl -fsSL -H "Accept: application/vnd.github.raw+json" \
         -o "$dest" "https://api.github.com/repos/${IXTF_PROJECT_REPO}/contents/${relpath}?ref=${ref}" 2>/dev/null && [[ -s "$dest" ]]; then
         return 0
@@ -3765,7 +3766,7 @@ fetch_repo_file_contents() {
 }
 
 fetch_version_text() {
-    local ref="${1:-main}" tmp ver
+    local ref="${1:-$IXTF_PROJECT_REF}" tmp ver
     tmp="$(make_tmp_file "ix-transit-fabric.version")"
     if ! fetch_repo_file_contents "VERSION" "$tmp" "$ref"; then
         rm -f -- "$tmp"
@@ -3779,7 +3780,7 @@ fetch_version_text() {
 
 upgrade_script() {
     require_root "$@"
-    local tag ref="main" before after tmp answer target_ver installed_ver downloaded_ver
+    local tag ref="$IXTF_PROJECT_REF" before after tmp answer target_ver installed_ver downloaded_ver
     before="$SCRIPT_VERSION"
     if [[ -n "${IXTF_TAG:-}" ]]; then
         tag="${IXTF_TAG}"
@@ -3787,8 +3788,8 @@ upgrade_script() {
         ref="$tag"
         target_ver="${tag#v}"
     else
-        target_ver="$(fetch_version_text "main")" || die_user "无法读取 main/VERSION。可指定：IXTF_TAG=vX.Y.Z ix upgrade-script"
-        tag="v${target_ver}"
+        target_ver="$(fetch_version_text "$ref")" || die_user "无法读取 ${ref}/VERSION。可指定：IXTF_TAG=vX.Y.Z ix upgrade-script"
+        tag="$ref"
     fi
     installed_ver=""
     if [[ -x "$IX_CLI_INSTALL_SH" ]]; then
@@ -3805,7 +3806,7 @@ upgrade_script() {
     chmod 0755 "$tmp"
     downloaded_ver="$(grep -m1 '^SCRIPT_VERSION=' "$tmp" | sed -E 's/^SCRIPT_VERSION="([^"]+)".*/\1/')"
     if [[ "$downloaded_ver" != "$target_ver" ]]; then
-        log_warn "install.sh 下载版本 ${downloaded_ver} 与 main/VERSION ${target_ver} 不一致，2 秒后重试..."
+        log_warn "install.sh 下载版本 ${downloaded_ver} 与 ${ref}/VERSION ${target_ver} 不一致，2 秒后重试..."
         sleep 2
         if ! fetch_repo_file_contents "install.sh" "$tmp" "$ref"; then
             rm -f -- "$tmp"
@@ -3813,12 +3814,15 @@ upgrade_script() {
         fi
         chmod 0755 "$tmp"
         downloaded_ver="$(grep -m1 '^SCRIPT_VERSION=' "$tmp" | sed -E 's/^SCRIPT_VERSION="([^"]+)".*/\1/')"
-        [[ "$downloaded_ver" == "$target_ver" ]] || die_user "下载仍为 ${downloaded_ver}，与目标 ${target_ver} 不符。请运行：curl -fsSL \"https://raw.githubusercontent.com/k30303030/wg-mimic-fabric/main/scripts/fix-ix.sh?ts=\$(date +%s)\" | sudo bash"
+        [[ "$downloaded_ver" == "$target_ver" ]] || die_user "下载仍为 ${downloaded_ver}，与目标 ${target_ver} 不符。请运行：curl -fsSL \"https://raw.githubusercontent.com/k30303030/ix-transit-fabric/dev/scripts/fix-ix.sh?ts=\$(date +%s)\" | sudo bash"
     fi
-    if [[ "$before" == "$target_ver" && "${installed_ver:-$before}" == "$target_ver" ]]; then
+    if [[ -n "${IXTF_TAG:-}" && "$before" == "$target_ver" && "${installed_ver:-$before}" == "$target_ver" ]]; then
         rm -f -- "$tmp"
         log_ok "管理脚本已是最新版本（${target_ver}）。"
         return 0
+    fi
+    if [[ -z "${IXTF_TAG:-}" && "$before" == "$target_ver" && "${installed_ver:-$before}" == "$target_ver" ]]; then
+        log_info "版本号未变化；继续同步 ${ref} 分支最新内容。"
     fi
     if is_interactive_input && [[ "${IXTF_UPGRADE_YES:-}" != "1" ]]; then
         answer="$(prompt_yes_no "下载 ${tag}（install.sh ${downloaded_ver}）并更新 ix / libexec" "true")" || return 1
@@ -4701,81 +4705,55 @@ host_role_hint_zh() {
     fi
 }
 
-resolve_profile_id_for_menu() {
-    local verb="${1:-}" requested="${2:-}" count only
+select_profile_from_menu() {
+    local purpose="${1:-操作}" count id index=0 choice choice_num selected
+    local -a menu_ids=()
     count="$(profile_count)"
-    if [[ "$count" == "0" && ! -f "$ENV_FILE" ]]; then
-        die_user "当前没有线路，请先创建 NAT IX 中转线路或导入接入码。"
+    if [[ "$count" -eq 0 ]]; then
+        printf '当前没有线路，请先创建 NAT IX 中转线路或导入接入码。\n' >&2
         return 2
     fi
-    if [[ -n "$requested" ]]; then
-        validate_profile_id "$requested" || die_user "线路 ID 格式不正确：${requested}"
-        [[ -f "$(profile_env_path "$requested")" ]] || die_user "未找到线路：${requested}"
-        printf '%s\n' "$requested"
+    if [[ "$count" -eq 1 ]]; then
+        selected="$(profile_ids | head -n 1)"
+        printf '已自动选择唯一线路：%s\n' "$selected" >&2
+        printf '%s\n' "$selected"
         return 0
     fi
-    if [[ "$count" == "1" ]]; then
-        only="$(profile_ids | head -n 1)"
-        printf '%s\n' "$only"
-        return 0
-    fi
-    if [[ "$count" == "0" && -f "$ENV_FILE" ]]; then
-        printf 'default\n'
-        return 0
-    fi
-    printf '当前机器已有线路：\n' >&2
-    profile_ids | sed 's/^/  - /' >&2
-    printf '请输入线路 ID：' >&2
-    IFS= read -r requested || return 0
-    [[ -n "$requested" ]] || die_user "请指定线路 ID。"
-    resolve_profile_id_for_menu "$verb" "$requested"
-}
 
-prompt_profile_id_for_menu() {
-    local verb="${1:-}" count only profile_id
-    count="$(profile_count)"
-    if [[ "$count" == "1" ]]; then
-        only="$(profile_ids | head -n 1)"
-        printf '已自动选择唯一线路：%s\n' "$only" >&2
-        printf '%s\n' "$only"
-        return 0
+    printf '请选择要%s的线路：\n\n' "$purpose" >&2
+    for id in $(sorted_profile_ids); do
+        load_profile "$id" >/dev/null 2>&1 || continue
+        menu_ids+=("$id")
+        index=$((index + 1))
+        printf '%s. %s（%s，%s，健康：%s，规则：%s）\n' \
+            "$index" "$id" "$(profile_role_label_zh "${ROLE:-}")" \
+            "$(enabled_label_zh "${ENABLED:-true}")" \
+            "$(health_label_zh "${HEALTH_STATUS:-unknown}")" \
+            "$(rule_menu_rule_count "$id")" >&2
+    done
+    if [[ "$index" -eq 0 ]]; then
+        printf '当前没有可读取的线路，请检查线路配置文件权限。\n' >&2
+        return 2
     fi
-    printf '请输入线路编号或 ID（直接回车自动选择唯一线路）：' >&2
-    IFS= read -r profile_id || return 0
-    if ! profile_id="$(resolve_profile_id_for_menu "$verb" "$profile_id")"; then
-        return 0
-    fi
-    printf '%s\n' "$profile_id"
-}
-
-latency_report_from_menu() {
-    local profile_id=""
-    if ! profile_id="$(prompt_profile_id_for_menu latency-report)"; then
-        return 0
-    fi
-    [[ -n "$profile_id" ]] || return 0
-    latency_report "$profile_id"
-    return 0
-}
-
-show_profile_from_menu() {
-    local profile_id=""
-    if ! profile_id="$(prompt_profile_id_for_menu show-config)"; then
-        return 0
-    fi
-    [[ -n "$profile_id" ]] || return 0
-    show_profile "$profile_id"
-    return 0
-}
-
-health_profile_from_menu() {
-    local profile_id=""
-    if ! profile_id="$(prompt_profile_id_for_menu health)"; then
-        return 0
-    fi
-    [[ -n "$profile_id" ]] || return 0
-    health_profile "$profile_id"
-    return 0
+    printf '\n' >&2
+    while true; do
+        printf '请输入数字序号 [0 返回 / 1-%s]：' "$index" >&2
+        IFS= read -r choice || return 1
+        choice="$(normalize_menu_choice "$choice")"
+        [[ -n "$choice" ]] || continue
+        [[ "$choice" == "0" ]] && return 1
+        if [[ "$choice" =~ ^[0-9]+$ ]]; then
+            choice_num=$((10#$choice))
+            if (( choice_num >= 1 && choice_num <= index )); then
+                selected="${menu_ids[$((choice_num - 1))]}"
+                printf '%s\n' "$selected"
+                return 0
+            fi
+            log_warn "无效序号，请输入 1-${index}，或输入 0 返回。"
+            continue
+        fi
+        log_warn "菜单只接受数字序号；线路 ID 仅用于 ix 子命令。"
+    done
 }
 
 normalize_systemctl_word() {
@@ -7523,59 +7501,6 @@ select_rule_from_menu() {
     done
 }
 
-select_profile_for_rule_menu() {
-    local count choice choice_num id index selected
-    local -a menu_ids=()
-    count="$(profile_count)"
-    if [[ "$count" -eq 0 ]]; then
-        printf '当前没有线路，请先创建 NAT IX 中转线路或导入接入码。\n' >&2
-        return 2
-    fi
-    if [[ "$count" -eq 1 ]]; then
-        profile_ids | head -n 1
-        return 0
-    fi
-    printf '请选择线路：\n\n' >&2
-    index=0
-    for id in $(sorted_profile_ids); do
-        load_profile "$id" >/dev/null 2>&1 || continue
-        menu_ids+=("$id")
-        index=$((index + 1))
-        printf '%s. %s（%s，规则数：%s）\n' "$index" "$id" "$(profile_role_label_zh "${ROLE:-}")" "$(rule_menu_rule_count "$id")" >&2
-    done
-    if [[ "$index" -eq 0 ]]; then
-        printf '当前没有可读取的线路，请检查线路配置文件权限。\n' >&2
-        return 2
-    fi
-    printf '\n' >&2
-    while true; do
-        printf '请选择线路 [0 返回 / 1-%s]：' "$index" >&2
-        IFS= read -r choice || return 1
-        choice="$(normalize_menu_choice "$choice")"
-        if [[ -z "$choice" ]]; then
-            continue
-        fi
-        if [[ "$choice" == "0" ]]; then
-            return 1
-        fi
-        if [[ "$choice" =~ ^[0-9]+$ ]]; then
-            choice_num=$((10#$choice))
-            if (( choice_num >= 1 && choice_num <= index )); then
-                selected="${menu_ids[$((choice_num - 1))]}"
-                printf '%s\n' "$selected"
-                return 0
-            fi
-            log_warn "无效选择，请输入列表中的序号。"
-            continue
-        fi
-        if [[ -n "$choice" ]] && validate_profile_id "$choice" && [[ -f "$(profile_env_path "$choice" 2>/dev/null || printf /nonexistent)" ]]; then
-            printf '%s\n' "$choice"
-            return 0
-        fi
-        log_warn "无效选择，请输入列表中的序号。"
-    done
-}
-
 prompt_forward_proto_menu() {
     local choice default_proto="${1:-both}" default_choice=1
     require_tty
@@ -7664,7 +7589,7 @@ prompt_refresh_access_code_after_rule_change() {
     if [[ "$(prompt_yes_no "是否现在生成新的接入码" "true")" == "true" ]]; then
         regenerate_nat_profile_code "$profile_id"
     else
-        printf '稍后可在"转发规则管理 -> 刷新接入码"中生成。\n'
+        printf '稍后可在“线路与转发管理 → 选择线路并管理 → 管理接入码”中生成。\n'
     fi
     return 0
 }
@@ -7683,6 +7608,53 @@ refresh_profile_after_rule_change() {
     fi
 }
 
+menu_edit_all_rule_fields() {
+    local profile_id="$1" rule_id="$2" value
+    local old_note="${RULE_NOTE:-}" old_landing_host="${LANDING_HOST:-}" old_landing_port="${LANDING_PORT:-}"
+    local old_proto="${FORWARD_PROTO:-both}" old_transit="${TRANSIT_PORT:-}" old_nat_public
+    local old_client="${CLIENT_PORT:-}"
+
+    old_nat_public="$(rule_nat_public_port_value 2>/dev/null || true)"
+
+    IXTF_RULE_EDIT_CHANGED=0
+    printf '\n全部修改：%s\n' "$rule_id" >&2
+    printf '请依次输入新值；不需要修改的项目直接回车，保留括号中的当前值。\n\n' >&2
+
+    RULE_NOTE="$(prompt_optional_text "规则备注" "${RULE_NOTE:-}")" || return 1
+    if [[ "${ROLE:-}" == "nat-transit" ]]; then
+        LANDING_HOST="$(prompt_validated "落地机地址" "${LANDING_HOST:-}" validate_host "请输入 IPv4 或域名。")" || return 1
+        LANDING_PORT="$(prompt_port "落地业务端口" "${LANDING_PORT:-}")" || return 1
+        FORWARD_PROTO="$(prompt_forward_proto_menu "${FORWARD_PROTO:-both}")" || return 1
+        value="$(prompt_port "虚拟网中转端口" "${TRANSIT_PORT:-}")" || return 1
+        port_used_by_profile_rule "$profile_id" transit "$value" "$rule_id" && die_user "虚拟网中转端口已被同线路其他规则使用：${value}"
+        TRANSIT_PORT="$value"
+        if [[ "${NAT_DIRECTION:-ingress-listener}" == "nat-listener" ]]; then
+            value="$(prompt_port "商家入口端口" "$(rule_nat_public_port_value 2>/dev/null || true)")" || return 1
+            if [[ "$value" != "$old_nat_public" ]]; then
+                nat_public_port_in_pool "$value" || die_user "商家入口端口不在 NAT_PUBLIC_PORTS 中：${value}"
+                port_used_by_profile_rule "$profile_id" nat-public "$value" "$rule_id" && die_user "商家入口端口已被同线路其他规则使用：${value}"
+            fi
+            NAT_PUBLIC_PORT="$value"
+        fi
+        printf '\n客户端入口端口由公网入口机侧指定，本机不修改。\n' >&2
+    elif [[ "${ROLE:-}" == "nat-ingress" ]]; then
+        value="$(prompt_port "客户端入口端口" "${CLIENT_PORT:-}")" || return 1
+        port_used_by_profile_rule "$profile_id" client "$value" "$rule_id" && die_user "客户端入口端口已被同线路其他规则使用：${value}"
+        CLIENT_PORT="$value"
+        printf '\n落地目标、协议和中转端口以 NAT IX 机器接入码为准，本机不修改。\n' >&2
+    else
+        die_user "当前线路不支持转发规则修改：${ROLE:-unknown}"
+    fi
+
+    if [[ "${RULE_NOTE:-}" != "$old_note" || "${LANDING_HOST:-}" != "$old_landing_host" || \
+          "${LANDING_PORT:-}" != "$old_landing_port" || "${FORWARD_PROTO:-both}" != "$old_proto" || \
+          "${TRANSIT_PORT:-}" != "$old_transit" || "$(rule_nat_public_port_value 2>/dev/null || true)" != "$old_nat_public" || \
+          "${CLIENT_PORT:-}" != "$old_client" ]]; then
+        IXTF_RULE_EDIT_CHANGED=1
+    fi
+    return 0
+}
+
 menu_edit_rule() {
     local profile_id="$1" rule_id choice value changed=0
     rule_id="$(select_rule_from_menu "$profile_id")" || return 0
@@ -7691,16 +7663,17 @@ menu_edit_rule() {
     while true; do
         printf '\n修改规则：%s [%s]\n\n' "$rule_id" "$(rule_note_display)" >&2
         cat >&2 <<'EOF'
-可修改：
+ 可修改：
 
-1. 备注
-2. 落地机地址
-3. 落地业务端口
-4. 转发协议
-5. 虚拟网中转端口
-6. 商家入口端口
-7. 客户端入口端口
-8. 返回
+ 1. 全部修改（逐项询问，回车保留原值）
+ 2. 备注
+ 3. 落地机地址
+ 4. 落地业务端口
+ 5. 转发协议
+ 6. 虚拟网中转端口
+ 7. 商家入口端口
+ 8. 客户端入口端口
+ 0. 返回
 EOF
         printf '请选择：' >&2
         IFS= read -r choice || return 1
@@ -7708,10 +7681,18 @@ EOF
         [[ -z "$choice" ]] && continue
         case "$choice" in
             1)
+                menu_edit_all_rule_fields "$profile_id" "$rule_id" || return 1
+                changed="${IXTF_RULE_EDIT_CHANGED:-0}"
+                if [[ "$changed" -eq 0 ]]; then
+                    log_info "所有属性均保持原值，未写入配置。"
+                    return 0
+                fi
+                ;;
+            2)
                 RULE_NOTE="$(prompt_optional_text "请输入规则备注" "${RULE_NOTE:-}")" || return 1
                 changed=1
                 ;;
-            2)
+            3)
                 if [[ "${ROLE:-}" == "nat-transit" ]]; then
                     LANDING_HOST="$(prompt_validated "请输入落地机地址" "${LANDING_HOST:-}" validate_host "请输入 IPv4 或域名。")" || return 1
                     changed=1
@@ -7720,7 +7701,7 @@ EOF
                     return 0
                 fi
                 ;;
-            3)
+            4)
                 if [[ "${ROLE:-}" == "nat-transit" ]]; then
                     LANDING_PORT="$(prompt_port "请输入落地业务端口" "${LANDING_PORT:-}")" || return 1
                     changed=1
@@ -7729,7 +7710,7 @@ EOF
                     return 0
                 fi
                 ;;
-            4)
+            5)
                 if [[ "${ROLE:-}" == "nat-transit" ]]; then
                     FORWARD_PROTO="$(prompt_forward_proto_menu "${FORWARD_PROTO:-both}")" || return 1
                     changed=1
@@ -7738,7 +7719,7 @@ EOF
                     return 0
                 fi
                 ;;
-            5)
+            6)
                 if [[ "${ROLE:-}" == "nat-transit" ]]; then
                     value="$(prompt_port "请输入新的虚拟网中转端口" "${TRANSIT_PORT:-}")" || return 1
                     port_used_by_profile_rule "$profile_id" transit "$value" "$rule_id" && die_user "虚拟网中转端口已被同线路其他规则使用：${value}"
@@ -7749,7 +7730,7 @@ EOF
                     return 0
                 fi
                 ;;
-            6)
+            7)
                 if [[ "${ROLE:-}" == "nat-transit" && "${NAT_DIRECTION:-ingress-listener}" == "nat-listener" ]]; then
                     value="$(prompt_port "请输入新的商家入口端口" "$(rule_nat_public_port_value 2>/dev/null || true)")" || return 1
                     nat_public_port_in_pool "$value" || die_user "商家入口端口不在 NAT_PUBLIC_PORTS 中：${value}"
@@ -7761,7 +7742,7 @@ EOF
                     return 0
                 fi
                 ;;
-            7)
+            8)
                 if [[ "${ROLE:-}" == "nat-ingress" ]]; then
                     value="$(prompt_port "请输入新的客户端入口端口" "${CLIENT_PORT:-}")" || return 1
                     port_used_by_profile_rule "$profile_id" client "$value" "$rule_id" && die_user "客户端入口端口已被同线路其他规则使用：${value}"
@@ -7772,7 +7753,7 @@ EOF
                     return 0
                 fi
                 ;;
-            8|0|"")
+            0|"")
                 return 0
                 ;;
             *)
@@ -8389,14 +8370,6 @@ set_easytier_mtu() {
         printf 'EasyTier MTU 已恢复为 EasyTier 默认值。\n'
     fi
     printf 'NAT IX 与公网入口机 MTU 应保持一致；变更后请刷新接入码并在对端重新导入，或在对端执行 ix set-easytier-mtu。\n'
-}
-
-set_easytier_mtu_from_menu() {
-    local profile_id
-    if ! profile_id="$(prompt_profile_id_for_menu set-easytier-mtu)"; then
-        return 0
-    fi
-    set_easytier_mtu "$profile_id"
 }
 
 status_profile() {
@@ -11924,18 +11897,18 @@ switch_history() {
     history_file="$(switch_history_path)"
     row_count="$(awk -F '\t' -v g="$group_filter" 'NR>1 && (g=="" || $2==g) {c++} END{print c+0}' "$history_file")"
     if [[ "$row_count" -eq 0 ]]; then
-        printf 'No switch history found%s.\n' "$([[ -n "$group_filter" ]] && printf ' for %s' "$group_filter" || true)"
-        printf 'TIME\tGROUP\tFROM\tTO\tRESULT\tFROM_HEALTH\tTO_HEALTH\tNOTE\n'
+        printf '未找到切换历史%s。\n' "$([[ -n "$group_filter" ]] && printf '（线路组：%s）' "$group_filter" || true)"
+        printf '时间\t线路组\t原线路\t目标线路\t结果\t原健康状态\t目标健康状态\t备注\n'
         return 0
     fi
 
-    printf 'Recent switch history%s (last %s):\n' "$([[ -n "$group_filter" ]] && printf ' for %s' "$group_filter" || true)" "$limit"
+    printf '最近切换历史%s（最近 %s 条）：\n' "$([[ -n "$group_filter" ]] && printf '（线路组：%s）' "$group_filter" || true)" "$limit"
     awk -F '\t' -v g="$group_filter" -v limit="$limit" '
         NR>1 && (g=="" || $2==g) {
             rows[++n]=sprintf("%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s", $1, $2, $3, $4, $9, $7, $8, $10)
         }
         END {
-            print "TIME\tGROUP\tFROM\tTO\tRESULT\tFROM_HEALTH\tTO_HEALTH\tNOTE"
+            print "时间\t线路组\t原线路\t目标线路\t结果\t原健康状态\t目标健康状态\t备注"
             start=n-limit+1
             if (start < 1) start=1
             for (i=start; i<=n; i++) print rows[i]
@@ -13679,8 +13652,8 @@ doctor_profile() {
     load_profile_or_die "$profile_id"
     service="$(profile_service_name "$profile_id")"
 
-    printf 'ix-transit-fabric Profile 诊断\n'
-    printf 'Profile：%s\n' "$profile_id"
+    printf 'ix-transit-fabric 线路诊断\n'
+    printf '线路：%s\n' "$profile_id"
     printf '配置文件：%s\n' "$(profile_env_path "$profile_id")"
     printf '配置文件权限：%s\n' "$(path_mode "$(profile_env_path "$profile_id")")"
     validate_profile_config "$profile_id"
@@ -13689,7 +13662,7 @@ doctor_profile() {
     printf '\n配置摘要：\n'
     print_config_summary loaded || true
 
-    printf '\nProfile 服务：%s\n' "$service"
+    printf '\n线路服务：%s\n' "$service"
     if command_exists systemctl; then
         active="$(systemctl is-active "$service" 2>/dev/null || true)"
         enabled="$(systemctl is-enabled "$service" 2>/dev/null || true)"
@@ -14780,12 +14753,12 @@ EOF
     case "$mode" in
         1)
             uninstall
-            print_info "重新安装：curl -fsSL https://raw.githubusercontent.com/k30303030/wg-mimic-fabric/main/scripts/bootstrap.sh | sudo bash"
+            print_info "重新安装：curl -fsSL https://raw.githubusercontent.com/k30303030/ix-transit-fabric/dev/scripts/bootstrap.sh | sudo bash"
             return 11
             ;;
         2)
             purge
-            print_info "重新安装：curl -fsSL https://raw.githubusercontent.com/k30303030/wg-mimic-fabric/main/scripts/bootstrap.sh | sudo bash"
+            print_info "重新安装：curl -fsSL https://raw.githubusercontent.com/k30303030/ix-transit-fabric/dev/scripts/bootstrap.sh | sudo bash"
             return 11
             ;;
         0|"") return 0 ;;
@@ -14906,400 +14879,737 @@ EOF
 EOF
 }
 
-run_advanced_menu_action() {
-    local choice
-    choice="$(normalize_menu_choice "$1")"
-    [[ -z "$choice" ]] && return 0
-    case "$choice" in
-        1) list_profiles ;;
-        2) show_profile_from_menu ;;
-        3) manage_profiles_menu ;;
-        4) show_port_map_all ;;
-        5) show_nft ;;
-        6) export_diagnostic ;;
-        7) install_nc_tool ;;
-        8) uninstall_from_menu ;;
-        9) self_check ;;
-        10) cleanup_state ;;
-        11) show_monitor_menu ;;
-        12) upgrade_script ;;
-        13) set_easytier_mtu_from_menu ;;
-        0) return 10 ;;
-        *) log_warn "未知选项，请重新选择。"; return 0 ;;
-    esac
+run_menu_action_safely() {
+    local action="$1"
+    shift || true
+    set +e
+    trap - ERR
+    export IXTF_IN_MENU=1
+    export IXTF_ALLOW_INTERACTIVE=1
+    ( trap - ERR; set +e; "$action" "$@" )
+    IXTF_MENU_ACTION_RC=$?
+    trap 'on_error $LINENO' ERR
+    set -e
+    return 0
 }
 
-show_advanced_menu() {
-    local choice rc
+report_menu_action_result() {
+    local rc="${1:-0}"
+    if [[ "$rc" -ne 0 && "$rc" -ne 10 && "$rc" -ne 11 && "$rc" -ne 12 ]]; then
+        log_error "菜单操作失败（退出码 ${rc}），已返回当前菜单。"
+    fi
+}
+
+select_group_from_menu() {
+    local count group index=0 choice choice_num selected forwarding state
+    local -a menu_groups=()
+    count="$(profile_group_count)"
+    if [[ "$count" -eq 0 ]]; then
+        printf '当前没有线路组；独立线路不需要主备切换。\n' >&2
+        return 2
+    fi
+    if [[ "$count" -eq 1 ]]; then
+        selected="$(profile_groups | head -n 1)"
+        printf '已自动选择唯一线路组：%s\n' "$selected" >&2
+        printf '%s\n' "$selected"
+        return 0
+    fi
+    printf '请选择线路组：\n\n' >&2
+    while IFS= read -r group; do
+        [[ -n "$group" ]] || continue
+        menu_groups+=("$group")
+        index=$((index + 1))
+        forwarding="$(list_group_forwarding_profiles "$group" | join_profile_list)"
+        state="$(group_ready_state_label_zh "$(group_ready_state "$group")")"
+        printf '%s. %s（状态：%s，当前转发：%s）\n' "$index" "$group" "$state" "$forwarding" >&2
+    done < <(profile_groups)
+    printf '\n' >&2
     while true; do
-        cat >&2 <<'MENU'
-
-ix-transit-fabric 高级维护
-
-  1) 线路列表
-  2) 查看指定线路配置
-  3) 启用 / 禁用 / 删除线路
-  4) 查看端口地图
-  5) 查看 nftables 项目表
-  6) 导出脱敏诊断报告
-  7) 安装诊断工具
-  8) 卸载 / 完全清理
-  9) 最终自检
- 10) 清理历史与运行状态
- 11) 监控 / 通知 / DDNS
- 12) 升级管理脚本（main 最新）
- 13) 设置 EasyTier MTU
-  0) 返回主菜单
-MENU
-        printf '请选择：' >&2
-        IFS= read -r choice || { printf '\n' >&2; return 0; }
+        printf '请输入数字序号 [0 返回 / 1-%s]：' "$index" >&2
+        IFS= read -r choice || return 1
         choice="$(normalize_menu_choice "$choice")"
-        [[ -z "$choice" ]] && continue
-
-        set +e
-        trap - ERR
-        export IXTF_IN_MENU=1
-        export IXTF_ALLOW_INTERACTIVE=1
-        ( trap - ERR; set +e; run_advanced_menu_action "$choice" )
-        rc=$?
-        trap 'on_error $LINENO' ERR
-        set -e
-
-        [[ "$rc" -eq 10 ]] && return 0
-        [[ "$rc" -eq 11 ]] && return 11
-        if [[ "$rc" -ne 0 ]]; then
-            log_error "菜单操作失败（退出码 ${rc}），已返回菜单。"
+        [[ -n "$choice" ]] || continue
+        [[ "$choice" == "0" ]] && return 1
+        if [[ "$choice" =~ ^[0-9]+$ ]]; then
+            choice_num=$((10#$choice))
+            if (( choice_num >= 1 && choice_num <= index )); then
+                printf '%s\n' "${menu_groups[$((choice_num - 1))]}"
+                return 0
+            fi
+            log_warn "无效序号，请输入 1-${index}，或输入 0 返回。"
+            continue
         fi
+        log_warn "菜单只接受数字序号；线路组名称仅用于 ix 子命令。"
     done
 }
 
-manage_profiles_menu() {
-    local choice profile_id
+select_group_target_from_menu() {
+    local group="$1" id index=0 choice choice_num selected count
+    local -a menu_ids=()
+    while IFS= read -r id; do
+        [[ -n "$id" ]] || continue
+        load_profile "$id" >/dev/null 2>&1 || continue
+        menu_ids+=("$id")
+        index=$((index + 1))
+        printf '%s. %s（%s，%s，转发：%s，健康：%s）\n' \
+            "$index" "$id" "$(line_role_label_zh "${LINE_ROLE:-standalone}")" \
+            "$(enabled_label_zh "${ENABLED:-true}")" \
+            "$(forward_label_zh "${ROLE:-}" "${ENABLED:-true}" "${FORWARD_ENABLED:-true}")" \
+            "$(health_label_zh "${HEALTH_STATUS:-unknown}")" >&2
+    done < <(list_group_ingress_profiles "$group")
+    count="$index"
+    if [[ "$count" -eq 0 ]]; then
+        printf '线路组 %s 没有可切换的公网入口线路。\n' "$group" >&2
+        return 2
+    fi
+    if [[ "$count" -eq 1 ]]; then
+        selected="${menu_ids[0]}"
+        printf '已自动选择唯一目标线路：%s\n' "$selected" >&2
+        printf '%s\n' "$selected"
+        return 0
+    fi
+    printf '\n' >&2
+    while true; do
+        printf '请选择目标线路的数字序号 [0 返回 / 1-%s]：' "$count" >&2
+        IFS= read -r choice || return 1
+        choice="$(normalize_menu_choice "$choice")"
+        [[ -n "$choice" ]] || continue
+        [[ "$choice" == "0" ]] && return 1
+        if [[ "$choice" =~ ^[0-9]+$ ]]; then
+            choice_num=$((10#$choice))
+            if (( choice_num >= 1 && choice_num <= count )); then
+                printf '%s\n' "${menu_ids[$((choice_num - 1))]}"
+                return 0
+            fi
+            log_warn "无效序号，请输入 1-${count}，或输入 0 返回。"
+            continue
+        fi
+        log_warn "菜单只接受数字序号；线路 ID 仅用于 ix 子命令。"
+    done
+}
+
+show_create_menu() {
+    local choice
     cat >&2 <<'MENU'
 
-线路启停 / 删除
+创建 / 接入线路
 
+  1) 在 NAT IX 机器创建中转线路
+  2) 在公网入口机导入接入码
+  0) 返回主菜单
+MENU
+    printf '请选择：' >&2
+    IFS= read -r choice || return 0
+    choice="$(normalize_menu_choice "$choice")"
+    case "$choice" in
+        1) add_nat_listener_profile ;;
+        2) add_nat_ingress_from_listener_code ;;
+        0|"") return 0 ;;
+        *) log_warn "未知选项，请输入菜单中的数字。" ;;
+    esac
+}
+
+manage_profile_state_menu() {
+    local profile_id="$1" choice
+    load_profile_or_die "$profile_id"
+    printf '\n线路启停状态：%s\n' "$profile_id" >&2
+    printf '当前状态：%s\n\n' "$(enabled_label_zh "${ENABLED:-true}")" >&2
+    cat >&2 <<'MENU'
   1) 启用线路
-  2) 禁用线路
-  3) 删除线路
+  2) 停用线路
   0) 返回
 MENU
     printf '请选择：' >&2
     IFS= read -r choice || return 0
     choice="$(normalize_menu_choice "$choice")"
-    [[ -z "$choice" ]] && return 0
-    [[ "$choice" == "0" ]] && return 0
-    printf '请输入线路 ID：' >&2
-    IFS= read -r profile_id || return 1
-    profile_id="$(normalize_menu_choice "$profile_id")"
     case "$choice" in
-        1) enable_profile "$profile_id" ;;
-        2) disable_profile "$profile_id" ;;
-        3) delete_profile "$profile_id" ;;
-        *) log_warn "未知选项。" ;;
+        1) enable_profile "$profile_id"; log_ok "线路已启用：${profile_id}" ;;
+        2) disable_profile "$profile_id"; log_ok "线路已停用：${profile_id}" ;;
+        0|"") return 0 ;;
+        *) log_warn "未知选项，请输入菜单中的数字。" ;;
     esac
 }
 
-run_health_menu_action() {
-    local choice profile_id group target
-    choice="$(normalize_menu_choice "$1")"
-    [[ -z "$choice" ]] && return 0
-    case "$choice" in
-        1) health_report ;;
-        2)
-            printf '请输入 PROFILE_ID：' >&2
-            IFS= read -r profile_id || return 1
-            check_line "$profile_id"
-            ;;
-        3) health_all ;;
-        4)
-            printf '请输入 LINE_GROUP：' >&2
-            IFS= read -r group || return 1
-            show_group "$group"
-            ;;
-        5)
-            printf '请输入 LINE_GROUP：' >&2
-            IFS= read -r group || return 1
-            primary_backup_check "$group"
-            ;;
-        6)
-            printf '请输入 LINE_GROUP：' >&2
-            IFS= read -r group || return 1
-            primary_backup_runbook "$group"
-            ;;
-        7) primary_backup_summary ;;
-        8)
-            printf '请输入 LINE_GROUP：' >&2
-            IFS= read -r group || return 1
-            printf '请输入目标 PROFILE_ID：' >&2
-            IFS= read -r target || return 1
-            switch_dry_run "$group" "$target"
-            ;;
-        9)
-            printf '请输入 LINE_GROUP：' >&2
-            IFS= read -r group || return 1
-            printf '请输入目标 PROFILE_ID：' >&2
-            IFS= read -r target || return 1
-            switch_line "$group" "$target"
-            ;;
-        10) switch_history ;;
-        11) switch_rollback_last ;;
-        12) verify_nft_profiles ;;
-        0) return 10 ;;
-        *) log_warn "未知选项，请重新选择。"; return 0 ;;
-    esac
-}
+manage_access_code_menu() {
+    local profile_id="$1" choice
+    cat >&2 <<'MENU'
 
-run_monitor_menu_action() {
-    local choice profile_id group minutes
-    choice="$(normalize_menu_choice "$1")"
-    [[ -z "$choice" ]] && return 0
-    case "$choice" in
-        1) monitor_run_once ;;
-        2) monitor_enable ;;
-        3) monitor_disable ;;
-        4) monitor_status ;;
-        5) monitor_logs ;;
-        6) notify_config ;;
-        7) notify_test ;;
-        8) notify_enable ;;
-        9) notify_disable ;;
-        10) notify_status ;;
-        11) health_history ;;
-        12)
-            if ddns_user_disabled; then
-                log_warn "DDNS 定时刷新已禁用；本次为手动刷新。"
-            fi
-            ddns_refresh_all
-            ;;
-        13) ddns_enable ;;
-        14) ddns_disable ;;
-        15) ddns_status ;;
-        0) return 10 ;;
-        *) log_warn "未知选项，请重新选择。"; return 0 ;;
-    esac
-}
+接入码管理
 
-show_monitor_menu() {
-    local choice rc
-    while true; do
-        cat >&2 <<'MENU'
-
-监控 / 通知 / DDNS
-
-  1) 立即运行一次监控
-  2) 启用定时健康检查
-  3) 禁用定时健康检查
-  4) 查看监控状态
-  5) 查看监控日志
-  6) 配置通知
-  7) 测试通知
-  8) 启用通知
-  9) 禁用通知
- 10) 查看通知状态
- 11) 查看健康历史
- 12) 立即刷新 DDNS（手动）
- 13) 启用 DDNS 定时刷新
- 14) 禁用 DDNS 定时刷新
- 15) 查看 DDNS 状态
+  1) 查看当前接入码
+  2) 刷新接入码（旧接入码将失效）
   0) 返回
 MENU
-        printf '请选择：' >&2
-        IFS= read -r choice || { printf '\n' >&2; return 0; }
-        choice="$(normalize_menu_choice "$choice")"
-        [[ -z "$choice" ]] && continue
-
-        set +e
-        trap - ERR
-        export IXTF_IN_MENU=1
-        export IXTF_ALLOW_INTERACTIVE=1
-        ( trap - ERR; set +e; run_monitor_menu_action "$choice" )
-        rc=$?
-        trap 'on_error $LINENO' ERR
-        set -e
-
-        [[ "$rc" -eq 10 ]] && return 0
-        [[ "$rc" -eq 11 ]] && return 11
-        if [[ "$rc" -ne 0 ]]; then
-            log_error "菜单操作失败（退出码 ${rc}），已返回菜单。"
-        fi
-    done
-}
-
-run_diagnostics_menu_action() {
-    local choice
-    choice="$(normalize_menu_choice "$1")"
-    [[ -z "$choice" ]] && return 0
+    printf '请选择：' >&2
+    IFS= read -r choice || return 0
+    choice="$(normalize_menu_choice "$choice")"
     case "$choice" in
-        1) status_all ;;
-        2) health_profile_from_menu ;;
-        3) latency_report_from_menu ;;
-        4) traffic_report ;;
-        5) show_health_menu ;;
-        0) return 10 ;;
-        *) log_warn "未知选项，请重新选择。"; return 0 ;;
+        1) show_code "$profile_id" ;;
+        2) refresh_code "$profile_id" ;;
+        0|"") return 0 ;;
+        *) log_warn "未知选项，请输入菜单中的数字。" ;;
     esac
 }
 
-show_diagnostics_menu() {
-    local choice rc
-    while true; do
-        cat >&2 <<'MENU'
+manage_easytier_settings_menu() {
+    local profile_id="$1" choice
+    cat >&2 <<'MENU'
 
-线路状态 / 诊断
+EasyTier 线路参数
 
-  1) 线路列表与运行状态
-  2) 单线路健康检查
-  3) 延迟诊断
-  4) 流量统计
-  5) 健康报告 / 主备切换
-  0) 返回主菜单
-MENU
-        printf '请选择：' >&2
-        IFS= read -r choice || { printf '\n' >&2; return 0; }
-        choice="$(normalize_menu_choice "$choice")"
-        [[ -z "$choice" ]] && continue
-
-        set +e
-        trap - ERR
-        export IXTF_IN_MENU=1
-        export IXTF_ALLOW_INTERACTIVE=1
-        ( trap - ERR; set +e; run_diagnostics_menu_action "$choice" )
-        rc=$?
-        trap 'on_error $LINENO' ERR
-        set -e
-
-        [[ "$rc" -eq 10 ]] && return 0
-        if [[ "$rc" -ne 0 ]]; then
-            log_error "菜单操作失败（退出码 ${rc}），已返回菜单。"
-        fi
-    done
-}
-
-show_health_menu() {
-    local choice rc
-    while true; do
-        cat >&2 <<'MENU'
-
-健康检查 / 主备切换
-
-  1) 查看健康报告
-  2) 检查指定线路
-  3) 检查全部线路
-  4) 查看线路组
-  5) 主备组完整性检查
-  6) 主备组操作手册
-  7) 主备组汇总
-  8) 切换预演 dry-run
-  9) 手动切换线路
-  10) 查看切换历史
-  11) 最近一次切换回滚辅助
-  12) 校验 nftables 与 Profile 一致性
+  1) 设置组网协议
+  2) 设置 MTU
   0) 返回
 MENU
-        printf '请选择：' >&2
-        IFS= read -r choice || { printf '\n' >&2; return 0; }
-        choice="$(normalize_menu_choice "$choice")"
-        [[ -z "$choice" ]] && continue
+    printf '请选择：' >&2
+    IFS= read -r choice || return 0
+    choice="$(normalize_menu_choice "$choice")"
+    case "$choice" in
+        1) set_easytier_protocol "$profile_id" ;;
+        2) set_easytier_mtu "$profile_id" ;;
+        0|"") return 0 ;;
+        *) log_warn "未知选项，请输入菜单中的数字。" ;;
+    esac
+}
 
-        set +e
-        trap - ERR
-        export IXTF_IN_MENU=1
-        export IXTF_ALLOW_INTERACTIVE=1
-        ( trap - ERR; set +e; run_health_menu_action "$choice" )
-        rc=$?
-        trap 'on_error $LINENO' ERR
-        set -e
-
-        [[ "$rc" -eq 10 ]] && return 0
-        if [[ "$rc" -ne 0 ]]; then
-            log_error "菜单操作失败（退出码 ${rc}），已返回菜单。"
-        fi
-    done
+manage_rule_state_menu() {
+    local profile_id="$1" rule_id choice
+    if ! rule_id="$(select_rule_from_menu "$profile_id")"; then
+        return 0
+    fi
+    load_rule "$profile_id" "$rule_id" || return 1
+    printf '\n规则启停状态：%s\n' "$rule_id" >&2
+    printf '当前状态：%s\n\n' "$(profile_rule_status_display)" >&2
+    cat >&2 <<'MENU'
+  1) 启用规则
+  2) 停用规则
+  0) 返回
+MENU
+    printf '请选择：' >&2
+    IFS= read -r choice || return 0
+    choice="$(normalize_menu_choice "$choice")"
+    case "$choice" in
+        1) enable_rule "$profile_id" "$rule_id" ;;
+        2) disable_rule "$profile_id" "$rule_id" ;;
+        0|"") return 0 ;;
+        *) log_warn "未知选项，请输入菜单中的数字。" ;;
+    esac
 }
 
 run_rule_menu_action() {
     local choice profile_id="$2"
     choice="$(normalize_menu_choice "$1")"
-    [[ -z "$choice" ]] && return 0
     case "$choice" in
         1) menu_add_rule "$profile_id" ;;
         2) menu_edit_rule "$profile_id" ;;
-        3) menu_enable_rule "$profile_id" ;;
-        4) menu_disable_rule "$profile_id" ;;
-        5) menu_delete_rule "$profile_id" ;;
-        6) menu_refresh_rule_code "$profile_id" ;;
-        7) menu_apply_rules "$profile_id" ;;
-        9|0|"") return 10 ;;
-        *) log_warn "未知选项，请重新选择。"; return 0 ;;
+        3) manage_rule_state_menu "$profile_id" ;;
+        4) menu_delete_rule "$profile_id" ;;
+        5) menu_apply_rules "$profile_id" ;;
+        0) return 10 ;;
+        *) log_warn "未知选项，请输入菜单中的数字。" ;;
     esac
 }
 
 show_rule_menu() {
-    local choice rc profile_id
-    if ! profile_id="$(select_profile_for_rule_menu)"; then
-        return 0
-    fi
+    local choice profile_id="$1"
     while true; do
         printf '\n转发规则管理\n'
         print_rule_menu_header "$profile_id"
         print_rule_menu_rules "$profile_id"
         cat >&2 <<'MENU'
 
-操作：
-
-  1) 新增转发规则
-  2) 修改转发规则
-  3) 启用转发规则
-  4) 停止转发规则
-  5) 删除转发规则
-  6) 刷新接入码
-  7) 重新应用转发规则
-  8) 切换线路
-  9) 返回主菜单
+  1) 新增规则
+  2) 修改规则
+  3) 规则启停状态
+  4) 删除规则
+  5) 重新应用规则
+  0) 返回线路菜单
 MENU
         printf '请选择：' >&2
-        IFS= read -r choice || { printf '\n' >&2; return 0; }
+        IFS= read -r choice || return 0
         choice="$(normalize_menu_choice "$choice")"
-        [[ -z "$choice" ]] && continue
+        [[ -n "$choice" ]] || continue
+        run_menu_action_safely run_rule_menu_action "$choice" "$profile_id"
+        [[ "$IXTF_MENU_ACTION_RC" -eq 10 ]] && return 0
+        report_menu_action_result "$IXTF_MENU_ACTION_RC"
+    done
+}
 
-        if [[ "$choice" == "8" ]]; then
-            if profile_id="$(select_profile_for_rule_menu)"; then
-                continue
+run_profile_menu_action() {
+    local choice="$1" profile_id="$2"
+    case "$choice" in
+        1) show_profile "$profile_id" ;;
+        2) show_rule_menu "$profile_id" ;;
+        3) manage_access_code_menu "$profile_id" ;;
+        4) manage_profile_state_menu "$profile_id" ;;
+        5) manage_easytier_settings_menu "$profile_id" ;;
+        6) apply_rules "$profile_id" ;;
+        7) delete_profile "$profile_id"; return 12 ;;
+        0) return 10 ;;
+        *) log_warn "未知选项，请输入菜单中的数字。" ;;
+    esac
+}
+
+show_profile_actions_menu() {
+    local profile_id="$1" choice
+    while [[ -f "$(profile_env_path "$profile_id" 2>/dev/null || printf /nonexistent)" ]]; do
+        load_profile_or_die "$profile_id"
+        printf '\n线路管理：%s\n' "$profile_id" >&2
+        printf '类型：%s｜状态：%s｜健康：%s｜规则：%s\n\n' \
+            "$(profile_role_label_zh "${ROLE:-}")" "$(enabled_label_zh "${ENABLED:-true}")" \
+            "$(health_label_zh "${HEALTH_STATUS:-unknown}")" "$(rule_menu_rule_count "$profile_id")" >&2
+        cat >&2 <<'MENU'
+  1) 查看线路配置
+  2) 管理转发规则
+  3) 管理接入码
+  4) 线路启停状态
+  5) EasyTier 线路参数
+  6) 重新应用转发规则
+  7) 删除线路
+  0) 返回线路列表
+MENU
+        printf '请选择：' >&2
+        IFS= read -r choice || return 0
+        choice="$(normalize_menu_choice "$choice")"
+        [[ -n "$choice" ]] || continue
+        run_menu_action_safely run_profile_menu_action "$choice" "$profile_id"
+        case "$IXTF_MENU_ACTION_RC" in
+            10|12) return 0 ;;
+            *) report_menu_action_result "$IXTF_MENU_ACTION_RC" ;;
+        esac
+    done
+}
+
+run_profiles_menu_action() {
+    local choice="$1" profile_id
+    case "$choice" in
+        1) list_profiles ;;
+        2)
+            if profile_id="$(select_profile_from_menu "管理")"; then
+                show_profile_actions_menu "$profile_id"
             fi
-            return 0
-        fi
+            ;;
+        3) show_port_map_all ;;
+        0) return 10 ;;
+        *) log_warn "未知选项，请输入菜单中的数字。" ;;
+    esac
+}
 
-        set +e
-        trap - ERR
-        export IXTF_IN_MENU=1
-        export IXTF_ALLOW_INTERACTIVE=1
-        ( trap - ERR; set +e; run_rule_menu_action "$choice" "$profile_id" )
-        rc=$?
-        trap 'on_error $LINENO' ERR
-        set -e
+show_profiles_menu() {
+    local choice
+    while true; do
+        cat >&2 <<'MENU'
 
-        [[ "$rc" -eq 10 ]] && return 0
-        if [[ "$rc" -ne 0 ]]; then
-            log_error "菜单操作失败（退出码 ${rc}），已返回菜单。"
-        fi
+线路与转发管理
+
+  1) 查看全部线路
+  2) 选择线路并管理
+  3) 查看全部端口映射
+  0) 返回主菜单
+MENU
+        printf '请选择：' >&2
+        IFS= read -r choice || return 0
+        choice="$(normalize_menu_choice "$choice")"
+        [[ -n "$choice" ]] || continue
+        run_menu_action_safely run_profiles_menu_action "$choice"
+        [[ "$IXTF_MENU_ACTION_RC" -eq 10 ]] && return 0
+        report_menu_action_result "$IXTF_MENU_ACTION_RC"
+    done
+}
+
+run_profile_diagnostics_action() {
+    local choice="$1" profile_id="$2"
+    case "$choice" in
+        1) doctor_profile "$profile_id" ;;
+        2) health_profile "$profile_id" ;;
+        3) latency_report "$profile_id" ;;
+        4) show_port_map "$profile_id" ;;
+        5) show_easytier_status "$profile_id" ;;
+        0) return 10 ;;
+        *) log_warn "未知选项，请输入菜单中的数字。" ;;
+    esac
+}
+
+show_profile_diagnostics_menu() {
+    local profile_id="$1" choice
+    while true; do
+        cat >&2 <<MENU
+
+单线路诊断：${profile_id}
+
+  1) 综合诊断
+  2) 健康检查
+  3) 延迟诊断
+  4) 查看端口映射
+  5) 查看 EasyTier 状态
+  0) 返回诊断菜单
+MENU
+        printf '请选择：' >&2
+        IFS= read -r choice || return 0
+        choice="$(normalize_menu_choice "$choice")"
+        [[ -n "$choice" ]] || continue
+        run_menu_action_safely run_profile_diagnostics_action "$choice" "$profile_id"
+        [[ "$IXTF_MENU_ACTION_RC" -eq 10 ]] && return 0
+        report_menu_action_result "$IXTF_MENU_ACTION_RC"
+    done
+}
+
+show_health_overview_menu() {
+    local choice
+    cat >&2 <<'MENU'
+
+健康检查与历史
+
+  1) 查看健康报告
+  2) 检查全部线路
+  3) 查看健康历史
+  0) 返回
+MENU
+    printf '请选择：' >&2
+    IFS= read -r choice || return 0
+    choice="$(normalize_menu_choice "$choice")"
+    case "$choice" in
+        1) health_report ;;
+        2) health_all ;;
+        3) health_history ;;
+        0|"") return 0 ;;
+        *) log_warn "未知选项，请输入菜单中的数字。" ;;
+    esac
+}
+
+run_group_menu_action() {
+    local choice="$1" group="$2" target
+    case "$choice" in
+        1) show_group "$group" ;;
+        2) primary_backup_check "$group" ;;
+        3) primary_backup_runbook "$group" ;;
+        4) health_report --group "$group" ;;
+        5)
+            if target="$(select_group_target_from_menu "$group")"; then
+                switch_dry_run "$group" "$target"
+            fi
+            ;;
+        6)
+            if target="$(select_group_target_from_menu "$group")"; then
+                switch_line "$group" "$target"
+            fi
+            ;;
+        7) switch_history "$group" ;;
+        0) return 10 ;;
+        *) log_warn "未知选项，请输入菜单中的数字。" ;;
+    esac
+}
+
+show_group_actions_menu() {
+    local group="$1" choice
+    while true; do
+        cat >&2 <<MENU
+
+线路组管理：${group}
+
+  1) 查看线路组概览
+  2) 主备完整性检查
+  3) 查看主备操作手册
+  4) 查看本组健康报告
+  5) 切换预演（不修改配置）
+  6) 正式切换线路
+  7) 查看本组切换历史
+  0) 返回主备菜单
+MENU
+        printf '请选择：' >&2
+        IFS= read -r choice || return 0
+        choice="$(normalize_menu_choice "$choice")"
+        [[ -n "$choice" ]] || continue
+        run_menu_action_safely run_group_menu_action "$choice" "$group"
+        [[ "$IXTF_MENU_ACTION_RC" -eq 10 ]] && return 0
+        report_menu_action_result "$IXTF_MENU_ACTION_RC"
+    done
+}
+
+run_primary_backup_menu_action() {
+    local choice="$1" group
+    case "$choice" in
+        1) primary_backup_summary ;;
+        2)
+            if group="$(select_group_from_menu)"; then
+                show_group_actions_menu "$group"
+            fi
+            ;;
+        3) switch_history ;;
+        4) switch_rollback_last ;;
+        0) return 10 ;;
+        *) log_warn "未知选项，请输入菜单中的数字。" ;;
+    esac
+}
+
+show_primary_backup_menu() {
+    local choice
+    while true; do
+        cat >&2 <<'MENU'
+
+主备线路管理
+
+  1) 查看全部线路组汇总
+  2) 选择线路组并管理
+  3) 查看全部切换历史
+  4) 最近一次切换回滚辅助
+  0) 返回诊断菜单
+MENU
+        printf '请选择：' >&2
+        IFS= read -r choice || return 0
+        choice="$(normalize_menu_choice "$choice")"
+        [[ -n "$choice" ]] || continue
+        run_menu_action_safely run_primary_backup_menu_action "$choice"
+        [[ "$IXTF_MENU_ACTION_RC" -eq 10 ]] && return 0
+        report_menu_action_result "$IXTF_MENU_ACTION_RC"
+    done
+}
+
+run_diagnostics_menu_action() {
+    local choice="$1" profile_id
+    case "$choice" in
+        1) status_all ;;
+        2)
+            if profile_id="$(select_profile_from_menu "诊断")"; then
+                show_profile_diagnostics_menu "$profile_id"
+            fi
+            ;;
+        3) show_health_overview_menu ;;
+        4) traffic_report ;;
+        5) show_primary_backup_menu ;;
+        6) verify_nft_profiles ;;
+        0) return 10 ;;
+        *) log_warn "未知选项，请输入菜单中的数字。" ;;
+    esac
+}
+
+show_diagnostics_menu() {
+    local choice
+    while true; do
+        cat >&2 <<'MENU'
+
+状态检查与故障诊断
+
+  1) 查看全部线路运行状态
+  2) 选择线路并诊断
+  3) 健康检查与历史
+  4) 查看流量统计
+  5) 主备线路管理
+  6) 校验 nftables 与线路配置
+  0) 返回主菜单
+MENU
+        printf '请选择：' >&2
+        IFS= read -r choice || return 0
+        choice="$(normalize_menu_choice "$choice")"
+        [[ -n "$choice" ]] || continue
+        run_menu_action_safely run_diagnostics_menu_action "$choice"
+        [[ "$IXTF_MENU_ACTION_RC" -eq 10 ]] && return 0
+        report_menu_action_result "$IXTF_MENU_ACTION_RC"
+    done
+}
+
+run_monitor_menu_action() {
+    local choice="$1"
+    case "$choice" in
+        1) monitor_status ;;
+        2) monitor_run_once ;;
+        3) monitor_enable ;;
+        4) monitor_disable ;;
+        5) monitor_logs ;;
+        0) return 10 ;;
+        *) log_warn "未知选项，请输入菜单中的数字。" ;;
+    esac
+}
+
+show_monitor_menu() {
+    local choice
+    while true; do
+        cat >&2 <<'MENU'
+
+定时健康监控
+
+  1) 查看状态
+  2) 立即运行一次
+  3) 启用定时检查
+  4) 停用定时检查
+  5) 查看日志
+  0) 返回自动运维菜单
+MENU
+        printf '请选择：' >&2
+        IFS= read -r choice || return 0
+        choice="$(normalize_menu_choice "$choice")"
+        [[ -n "$choice" ]] || continue
+        run_menu_action_safely run_monitor_menu_action "$choice"
+        [[ "$IXTF_MENU_ACTION_RC" -eq 10 ]] && return 0
+        report_menu_action_result "$IXTF_MENU_ACTION_RC"
+    done
+}
+
+run_notify_menu_action() {
+    local choice="$1"
+    case "$choice" in
+        1) notify_status ;;
+        2) notify_config ;;
+        3) notify_test ;;
+        4) notify_enable ;;
+        5) notify_disable ;;
+        0) return 10 ;;
+        *) log_warn "未知选项，请输入菜单中的数字。" ;;
+    esac
+}
+
+show_notify_menu() {
+    local choice
+    while true; do
+        cat >&2 <<'MENU'
+
+故障通知
+
+  1) 查看状态
+  2) 配置通知
+  3) 发送测试通知
+  4) 启用通知
+  5) 停用通知
+  0) 返回自动运维菜单
+MENU
+        printf '请选择：' >&2
+        IFS= read -r choice || return 0
+        choice="$(normalize_menu_choice "$choice")"
+        [[ -n "$choice" ]] || continue
+        run_menu_action_safely run_notify_menu_action "$choice"
+        [[ "$IXTF_MENU_ACTION_RC" -eq 10 ]] && return 0
+        report_menu_action_result "$IXTF_MENU_ACTION_RC"
+    done
+}
+
+run_ddns_menu_action() {
+    local choice="$1"
+    case "$choice" in
+        1) ddns_status ;;
+        2)
+            if ddns_user_disabled; then
+                log_warn "DDNS 定时刷新已停用；本次仍执行手动刷新。"
+            fi
+            ddns_refresh_all
+            ;;
+        3) ddns_enable ;;
+        4) ddns_disable ;;
+        0) return 10 ;;
+        *) log_warn "未知选项，请输入菜单中的数字。" ;;
+    esac
+}
+
+show_ddns_menu() {
+    local choice
+    while true; do
+        cat >&2 <<'MENU'
+
+DDNS 自动刷新
+
+  1) 查看状态
+  2) 立即刷新
+  3) 启用定时刷新
+  4) 停用定时刷新
+  0) 返回自动运维菜单
+MENU
+        printf '请选择：' >&2
+        IFS= read -r choice || return 0
+        choice="$(normalize_menu_choice "$choice")"
+        [[ -n "$choice" ]] || continue
+        run_menu_action_safely run_ddns_menu_action "$choice"
+        [[ "$IXTF_MENU_ACTION_RC" -eq 10 ]] && return 0
+        report_menu_action_result "$IXTF_MENU_ACTION_RC"
+    done
+}
+
+run_automation_menu_action() {
+    local choice="$1"
+    case "$choice" in
+        1) show_monitor_menu ;;
+        2) show_notify_menu ;;
+        3) show_ddns_menu ;;
+        0) return 10 ;;
+        *) log_warn "未知选项，请输入菜单中的数字。" ;;
+    esac
+}
+
+show_automation_menu() {
+    local choice
+    while true; do
+        cat >&2 <<'MENU'
+
+自动运维
+
+  1) 定时健康监控
+  2) 故障通知
+  3) DDNS 自动刷新
+  0) 返回主菜单
+MENU
+        printf '请选择：' >&2
+        IFS= read -r choice || return 0
+        choice="$(normalize_menu_choice "$choice")"
+        [[ -n "$choice" ]] || continue
+        run_menu_action_safely run_automation_menu_action "$choice"
+        [[ "$IXTF_MENU_ACTION_RC" -eq 10 ]] && return 0
+        report_menu_action_result "$IXTF_MENU_ACTION_RC"
+    done
+}
+
+run_system_menu_action() {
+    local choice="$1"
+    case "$choice" in
+        1) upgrade_script ;;
+        2) self_check ;;
+        3) show_nft ;;
+        4) export_diagnostic ;;
+        5) install_nc_tool ;;
+        6) cleanup_state ;;
+        7) uninstall_from_menu ;;
+        0) return 10 ;;
+        *) log_warn "未知选项，请输入菜单中的数字。" ;;
+    esac
+}
+
+show_system_menu() {
+    local choice
+    while true; do
+        cat >&2 <<'MENU'
+
+系统维护
+
+  1) 升级管理脚本
+  2) 运行系统自检
+  3) 查看 nftables 项目表
+  4) 导出脱敏诊断报告
+  5) 安装诊断工具
+  6) 清理历史与运行状态
+  7) 卸载 / 完全清理
+  0) 返回主菜单
+MENU
+        printf '请选择：' >&2
+        IFS= read -r choice || return 0
+        choice="$(normalize_menu_choice "$choice")"
+        [[ -n "$choice" ]] || continue
+        run_menu_action_safely run_system_menu_action "$choice"
+        case "$IXTF_MENU_ACTION_RC" in
+            10) return 0 ;;
+            11) return 11 ;;
+            *) report_menu_action_result "$IXTF_MENU_ACTION_RC" ;;
+        esac
     done
 }
 
 run_menu_action() {
-    local choice profile_id
-    choice="$(normalize_menu_choice "$1")"
-    [[ -z "$choice" ]] && return 0
+    local choice="$1"
     case "$choice" in
-        1) add_nat_listener_profile ;;
-        2) add_nat_ingress_from_listener_code ;;
-        3) show_rule_menu ;;
-        4) show_diagnostics_menu ;;
+        1) show_create_menu ;;
+        2) show_profiles_menu ;;
+        3) show_diagnostics_menu ;;
+        4) show_automation_menu ;;
         5) install_easytier ;;
-        6) show_advanced_menu ;;
-        7|10) return 10 ;;
+        6) show_system_menu ;;
         0) return 10 ;;
-        *) log_warn "未知选项，请重新选择。"; return 0 ;;
+        *) log_warn "未知选项，请输入菜单中的数字。" ;;
     esac
 }
 
@@ -15308,39 +15618,28 @@ show_menu() {
     if [[ "${EUID:-$(id -u)}" -eq 0 ]]; then
         ensure_ix_cli_shortcut || true
     fi
-    local choice rc
+    local choice
     while true; do
         cat >&2 <<'MENU'
 
 ix-transit-fabric 管理菜单
 
-  1) 创建 NAT IX 中转线路
-  2) 公网入口机导入接入码
-  3) 转发规则管理
-  4) 线路状态 / 诊断
+  1) 创建 / 接入线路
+  2) 线路与转发管理
+  3) 状态检查与故障诊断
+  4) 自动运维
   5) 安装 / 更新 EasyTier
-  6) 高级维护
-  7) 退出
+  6) 系统维护
+  0) 退出
 MENU
         printf '请选择：' >&2
         IFS= read -r choice || { printf '\n' >&2; return 0; }
         choice="$(normalize_menu_choice "$choice")"
-        [[ -z "$choice" ]] && continue
-
-        set +e
-        trap - ERR
-        export IXTF_IN_MENU=1
-        export IXTF_ALLOW_INTERACTIVE=1
-        ( trap - ERR; set +e; run_menu_action "$choice" )
-        rc=$?
-        trap 'on_error $LINENO' ERR
-        set -e
-
-        [[ "$rc" -eq 10 ]] && return 0
-        [[ "$rc" -eq 11 ]] && return 0
-        if [[ "$rc" -ne 0 ]]; then
-            log_error "菜单操作失败（退出码 ${rc}），已返回菜单。"
-        fi
+        [[ -n "$choice" ]] || continue
+        run_menu_action_safely run_menu_action "$choice"
+        [[ "$IXTF_MENU_ACTION_RC" -eq 10 ]] && return 0
+        [[ "$IXTF_MENU_ACTION_RC" -eq 11 ]] && return 0
+        report_menu_action_result "$IXTF_MENU_ACTION_RC"
     done
 }
 
@@ -15769,4 +16068,6 @@ main() {
     esac
 }
 
-main "$@"
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    main "$@"
+fi
