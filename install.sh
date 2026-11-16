@@ -3,7 +3,7 @@ set -Eeuo pipefail
 
 SCRIPT_VERSION="1.3.18"
 APP_NAME="ix-transit-fabric"
-IXTF_PROJECT_REPO="k30303030/wg-mimic-fabric"
+IXTF_PROJECT_REPO="k30303030/ix-transit-fabric"
 
 CONFIG_DIR="/etc/ix-transit-fabric"
 ENV_FILE="${CONFIG_DIR}/ix-transit.env"
@@ -264,7 +264,7 @@ usage() {
     cat <<'USAGE'
 ix-transit-fabric - NAT-IX + EasyTier + nftables 中转线路管理脚本
 作者：ike
-项目地址：https://github.com/k30303030/wg-mimic-fabric
+项目地址：https://github.com/k30303030/ix-transit-fabric
 
 基础：
   bash install.sh --help
@@ -3682,7 +3682,7 @@ set -Eeuo pipefail
 IX_INSTALL_SH="/usr/local/libexec/ix-transit-fabric/install.sh"
 if [[ ! -x "$IX_INSTALL_SH" ]]; then
     printf '%s\n' "[ERROR] 未找到 ix 安装脚本：${IX_INSTALL_SH}" >&2
-    printf '%s\n' "请运行：curl -fsSL https://raw.githubusercontent.com/k30303030/wg-mimic-fabric/main/scripts/bootstrap.sh | sudo bash" >&2
+    printf '%s\n' "请运行：curl -fsSL https://raw.githubusercontent.com/k30303030/ix-transit-fabric/main/scripts/bootstrap.sh | sudo bash" >&2
     exit 1
 fi
 if (($#)); then
@@ -3788,7 +3788,7 @@ upgrade_script() {
         target_ver="${tag#v}"
     else
         target_ver="$(fetch_version_text "main")" || die_user "无法读取 main/VERSION。可指定：IXTF_TAG=vX.Y.Z ix upgrade-script"
-        tag="v${target_ver}"
+        tag="main"
     fi
     installed_ver=""
     if [[ -x "$IX_CLI_INSTALL_SH" ]]; then
@@ -3813,7 +3813,7 @@ upgrade_script() {
         fi
         chmod 0755 "$tmp"
         downloaded_ver="$(grep -m1 '^SCRIPT_VERSION=' "$tmp" | sed -E 's/^SCRIPT_VERSION="([^"]+)".*/\1/')"
-        [[ "$downloaded_ver" == "$target_ver" ]] || die_user "下载仍为 ${downloaded_ver}，与目标 ${target_ver} 不符。请运行：curl -fsSL \"https://raw.githubusercontent.com/k30303030/wg-mimic-fabric/main/scripts/fix-ix.sh?ts=\$(date +%s)\" | sudo bash"
+        [[ "$downloaded_ver" == "$target_ver" ]] || die_user "下载仍为 ${downloaded_ver}，与目标 ${target_ver} 不符。请运行：curl -fsSL \"https://raw.githubusercontent.com/k30303030/ix-transit-fabric/main/scripts/fix-ix.sh?ts=\$(date +%s)\" | sudo bash"
     fi
     if [[ "$before" == "$target_ver" && "${installed_ver:-$before}" == "$target_ver" ]]; then
         rm -f -- "$tmp"
@@ -14780,12 +14780,12 @@ EOF
     case "$mode" in
         1)
             uninstall
-            print_info "重新安装：curl -fsSL https://raw.githubusercontent.com/k30303030/wg-mimic-fabric/main/scripts/bootstrap.sh | sudo bash"
+            print_info "重新安装：curl -fsSL https://raw.githubusercontent.com/k30303030/ix-transit-fabric/main/scripts/bootstrap.sh | sudo bash"
             return 11
             ;;
         2)
             purge
-            print_info "重新安装：curl -fsSL https://raw.githubusercontent.com/k30303030/wg-mimic-fabric/main/scripts/bootstrap.sh | sudo bash"
+            print_info "重新安装：curl -fsSL https://raw.githubusercontent.com/k30303030/ix-transit-fabric/main/scripts/bootstrap.sh | sudo bash"
             return 11
             ;;
         0|"") return 0 ;;

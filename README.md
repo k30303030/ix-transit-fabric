@@ -1,8 +1,8 @@
 # ix-transit-fabric
 
-**当前版本**：[`v1.3.18`](https://github.com/k30303030/wg-mimic-fabric/releases/tag/v1.3.18)
+**当前版本**：[`1.3.18`](https://github.com/k30303030/ix-transit-fabric/blob/main/VERSION)
 **作者**：ike  
-**仓库**：[https://github.com/k30303030/wg-mimic-fabric](https://github.com/k30303030/wg-mimic-fabric)
+**仓库**：[https://github.com/k30303030/ix-transit-fabric](https://github.com/k30303030/ix-transit-fabric)
 
 用于管理 **NAT-IX 中转线路**：公网入口机接收客户端连接，经 EasyTier 虚拟网连到 NAT IX 机器，再由 nftables 转发到落地业务端口。
 
@@ -32,10 +32,10 @@
 
 ### 一键安装（推荐，单行）
 
-一行安装通过 **GitHub API** 拉取最新 `install.sh`（绕过 raw CDN 缓存；可用 `IXTF_TAG=vX.Y.Z` 固定版本）：
+一行安装通过 **GitHub API** 拉取 `main` 分支最新 `install.sh`（绕过 raw CDN 缓存；若仓库已有发布标签，也可用 `IXTF_TAG=vX.Y.Z` 固定版本）：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/k30303030/wg-mimic-fabric/main/scripts/bootstrap.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/k30303030/ix-transit-fabric/main/scripts/bootstrap.sh | sudo bash
 ```
 
 非 root 时仅下载 `install.sh` 到当前目录，按提示再 `sudo` 执行。
@@ -43,8 +43,7 @@ curl -fsSL https://raw.githubusercontent.com/k30303030/wg-mimic-fabric/main/scri
 ### 手动安装（分步）
 
 ```bash
-V=$(curl -fsSL https://raw.githubusercontent.com/k30303030/wg-mimic-fabric/main/VERSION | tr -d '[:space:]')
-curl -fsSL -o install.sh "https://raw.githubusercontent.com/k30303030/wg-mimic-fabric/v${V}/install.sh?ts=$(date +%s)"
+curl -fsSL -o install.sh "https://raw.githubusercontent.com/k30303030/ix-transit-fabric/main/install.sh?ts=$(date +%s)"
 chmod +x install.sh
 sudo bash install.sh install-easytier
 sudo bash install.sh install-ix-cli
@@ -62,13 +61,14 @@ sudo bash install.sh install-ix-cli
 
 带参数时等同 `bash install.sh <子命令> ...`（实际执行 `/usr/local/libexec/ix-transit-fabric/install.sh`）。
 
-### 指定版本（可选）
+### 指定 Git ref（可选）
 
-需要固定版本时，设置 `IXTF_TAG`：
+需要固定到当前仓库已有的提交、分支或标签时，替换下载地址中的 `main`：
 
 ```bash
-IXTF_TAG=v1.2.3 curl -fsSL -o install.sh \
-  "https://raw.githubusercontent.com/k30303030/wg-mimic-fabric/${IXTF_TAG}/install.sh?ts=$(date +%s)"
+REF=be6f10d
+curl -fsSL -o install.sh \
+  "https://raw.githubusercontent.com/k30303030/ix-transit-fabric/${REF}/install.sh?ts=$(date +%s)"
 bash install.sh install-ix-cli
 ```
 
@@ -84,7 +84,7 @@ bash install.sh install-ix-cli
 ix → 9) 高级维护 → 14) 升级管理脚本
 ```
 
-脚本会自动查询 GitHub 最新 Release，确认后下载并同步到 `ix` / libexec，无需手动 `curl`。
+脚本会读取 GitHub `main/VERSION`，确认后下载并同步到 `ix` / libexec，无需手动 `curl`。
 
 ### 方式二：命令行
 
